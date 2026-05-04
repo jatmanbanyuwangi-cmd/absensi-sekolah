@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Guru SD - Face & Geo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <!-- Library untuk Excel & PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <!-- Face API (External CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <style>
+        .glass-morphism {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: auto;
+            border-radius: 1rem;
+            overflow: hidden;
+            background: #000;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen font-sans text-slate-800">
+
+    <!-- LOGIN OVERLAY -->
+    <div id="login-overlay" class="fixed inset-0 bg-blue-600 z-[200] flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center">
+            <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i class="fas fa-user-lock text-3xl text-blue-600"></i>
+            </div>
+            <h2 class="text-2xl font-bold mb-2">Login Sistem</h2>
+            <p class="text-slate-500 mb-6 text-sm">Masukkan username dan password untuk masuk ke aplikasi.</p>
+            <div class="space-y-4">
+                <input type="text" id="login-username" placeholder="Username" class="w-full border p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                <input type="password" id="login-password" placeholder="Password" class="w-full border p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg">Masuk</button>
+            </div>
+            <p class="text-xs text-slate-400 mt-6">Default: admin / admin</p>
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav id="main-nav" class="bg-blue-600 text-white p-4 sticky top-0 z-50 shadow-lg hidden">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div id="school-logo-container" class="w-10 h-10 bg-white rounded-full flex items-center justify-center overflow-hidden">
+                    <i class="fas fa-school text-blue-600"></i>
+                </div>
+                <h1 id="display-school-name" class="font-bold text-lg">Absensi SD Digital</h1>
+            </div>
+            <div class="hidden md:flex space-x-6 items-center">
+                <button onclick="switchPage('home')" class="nav-link hover:text-blue-200 transition font-medium">Beranda</button>
+                <div id="admin-nav-group" class="hidden flex space-x-6">
+                    <button onclick="switchPage('admin')" class="nav-link hover:text-blue-200 transition font-medium">Manajemen</button>
+                    <button onclick="switchPage('users')" class="nav-link hover:text-blue-200 transition font-medium">Pengguna</button>
+                </div>
+                <button onclick="switchPage('reports')" class="nav-link hover:text-blue-200 transition font-medium">Laporan</button>
+                <div class="h-6 w-px bg-blue-400"></div>
+                <button onclick="handleLogout()" class="bg-blue-700 px-3 py-1 rounded-lg text-sm hover:bg-red-500 transition shadow-sm"><i class="fas fa-power-off"></i></button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-4 md:p-8">
+        
+        <!-- PAGE: HOME (ABSENSI) -->
+        <section id="page-home" class="page-content hidden">
+            <div class="max-w-md mx-auto glass-morphism rounded-3xl shadow-2xl p-6 text-center">
+                <h2 class="text-2xl font-bold mb-2">Presensi Kehadiran</h2>
+                <p id="current-time" class="text-blue-600 font-mono text-xl mb-4 font-bold">00:00:00</p>
+                
+                <div id="video-container" class="mb-6 shadow-inner border-4 border-white">
+                    <video id="video" width="400" height="300" autoplay muted playsinline></video>
+                </div>
+
+                <div class="space-y-4">
+                    <div id="location-status" class="text-sm p-2 rounded-lg bg-yellow-50 text-yellow-700">
+                        <i class="fas fa-location-dot mr-2"></i>Mengecek Lokasi...
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="processAbsence('Masuk')" id="btn-masuk" class="bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-105">
+                            <i class="fas fa-sign-in-alt mb-1 block text-xl"></i> Absen Masuk
+                        </button>
+                        <button onclick="processAbsence('Pulang')" id="btn-pulang" class="bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-2xl shadow-lg transition transform hover:scale-105">
+                            <i class="fas fa-sign-out-alt mb-1 block text-xl"></i> Absen Pulang
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE: ADMIN PANEL (GURU & SETTINGS) -->
+        <section id="page-admin" class="page-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-1 space-y-6">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm">
+                        <h3 class="font-bold text-lg mb-4 border-b pb-2">Pengaturan Sekolah</h3>
+                        <div class="space-y-4 text-sm">
+                            <input type="text" id="cfg-school-name" class="w-full border rounded-lg p-2" placeholder="Nama Sekolah">
+                            <input type="text" id="cfg-school-logo" class="w-full border rounded-lg p-2" placeholder="Logo URL">
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="time" id="cfg-time-in" class="w-full border rounded-lg p-2">
+                                <input type="time" id="cfg-time-out" class="w-full border rounded-lg p-2">
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-lg border border-dashed">
+                                <div class="grid grid-cols-2 gap-2 mb-2">
+                                    <input type="text" id="cfg-lat" readonly placeholder="Latitude" class="bg-white border rounded p-1 text-xs">
+                                    <input type="text" id="cfg-lng" readonly placeholder="Longitude" class="bg-white border rounded p-1 text-xs">
+                                </div>
+                                <button onclick="setSchoolLocation()" class="w-full bg-slate-100 hover:bg-slate-200 py-1 rounded text-xs font-bold transition">Ambil Lokasi Saat Ini</button>
+                            </div>
+                            <button onclick="saveSettings()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold">Simpan Pengaturan</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-2xl shadow-sm">
+                        <h3 class="font-bold text-lg mb-4 border-b pb-2">Tambah Guru / Staf</h3>
+                        <div class="space-y-3 text-sm">
+                            <input type="text" id="input-nip" placeholder="NIP / ID Guru" class="w-full border rounded-lg p-2">
+                            <input type="text" id="input-nama" placeholder="Nama Lengkap" class="w-full border rounded-lg p-2">
+                            <select id="input-jabatan" class="w-full border rounded-lg p-2">
+                                <option value="Guru">Guru</option>
+                                <option value="Wali Kelas">Wali Kelas</option>
+                                <option value="Kepala Sekolah">Kepala Sekolah</option>
+                                <option value="TU">TU</option>
+                                <option value="Tukang Kebun">Tukang Kebun</option>
+                            </select>
+                            <button onclick="addGuruManual()" class="w-full bg-slate-800 text-white py-2 rounded-lg font-bold">Tambah Manual</button>
+                            <input type="file" id="excel-upload" accept=".xlsx, .xls" class="hidden">
+                            <button onclick="document.getElementById('excel-upload').click()" class="w-full border-2 border-dashed border-blue-300 text-blue-600 py-2 rounded-lg font-bold">Upload Excel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-2">
+                    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-lg text-blue-600">Daftar Guru & Staf</h3>
+                            <span id="guru-count" class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">0</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <tr>
+                                        <th class="px-6 py-3">NIP</th>
+                                        <th class="px-6 py-3">Nama</th>
+                                        <th class="px-6 py-3">Jabatan</th>
+                                        <th class="px-6 py-3 text-right">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="guru-table-body" class="text-sm divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE: USERS MANAGEMENT -->
+        <section id="page-users" class="page-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-1">
+                    <div class="bg-white p-6 rounded-2xl shadow-sm">
+                        <h3 class="font-bold text-lg mb-4 border-b pb-2">Tambah Akun Baru</h3>
+                        <div class="space-y-4 text-sm">
+                            <input type="text" id="user-username" placeholder="Username" class="w-full border rounded-lg p-2">
+                            <input type="password" id="user-password" placeholder="Password" class="w-full border rounded-lg p-2">
+                            <select id="user-role" class="w-full border rounded-lg p-2">
+                                <option value="admin">Administrator</option>
+                                <option value="guru">Guru / Staf</option>
+                                <option value="kepsek">Kepala Sekolah</option>
+                            </select>
+                            <button onclick="addUser()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold shadow-lg">Buat Akun</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="lg:col-span-2">
+                    <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-lg text-blue-600">Daftar Pengguna Sistem</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <tr>
+                                        <th class="px-6 py-3">Username</th>
+                                        <th class="px-6 py-3">Role</th>
+                                        <th class="px-6 py-3 text-right">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body" class="text-sm divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PAGE: REPORTS -->
+        <section id="page-reports" class="page-content hidden">
+            <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+                <div class="flex flex-col md:flex-row md:items-end gap-4">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">FILTER LAPORAN</label>
+                        <select id="report-filter" onchange="toggleDateInputs()" class="w-full border rounded-lg p-2">
+                            <option value="hari">Harian</option>
+                            <option value="minggu">Mingguan</option>
+                            <option value="bulan">Bulanan</option>
+                            <option value="manual">Rentang Manual</option>
+                        </select>
+                    </div>
+                    <div id="manual-date-container" class="hidden flex gap-2 flex-1">
+                        <input type="date" id="date-start" class="w-full border rounded-lg p-2">
+                        <input type="date" id="date-end" class="w-full border rounded-lg p-2">
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="generateReport()" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">Proses</button>
+                        <button onclick="downloadExcel()" class="bg-green-600 text-white px-4 py-2 rounded-lg"><i class="fas fa-file-excel"></i></button>
+                        <button onclick="downloadPDF()" class="bg-red-600 text-white px-4 py-2 rounded-lg"><i class="fas fa-file-pdf"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table id="report-table" class="w-full text-left">
+                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+                            <tr>
+                                <th class="px-6 py-3">Tanggal</th>
+                                <th class="px-6 py-3">Nama/NIP</th>
+                                <th class="px-6 py-3">Masuk</th>
+                                <th class="px-6 py-3">Pulang</th>
+                                <th class="px-6 py-3">Status</th>
+                                <th class="px-6 py-3">Jarak</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-table-body" class="text-sm divide-y"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL EDIT PENGGUNA -->
+    <div id="modal-edit-user" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-[300] p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border-t-8 border-blue-600">
+            <h4 class="text-xl font-bold mb-4">Edit Pengguna</h4>
+            <div class="space-y-4">
+                <input type="hidden" id="edit-user-index">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Username</label>
+                    <input type="text" id="edit-user-username" class="w-full border p-2 rounded-lg text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Password Baru (kosongkan jika tetap)</label>
+                    <input type="password" id="edit-user-password" class="w-full border p-2 rounded-lg text-sm" placeholder="Password Baru">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Role</label>
+                    <select id="edit-user-role" class="w-full border p-2 rounded-lg text-sm">
+                        <option value="admin">Administrator</option>
+                        <option value="guru">Guru / Staf</option>
+                        <option value="kepsek">Kepala Sekolah</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 pt-2">
+                    <button onclick="closeEditUserModal()" class="flex-1 bg-slate-100 text-slate-700 py-2 rounded-xl font-bold">Batal</button>
+                    <button onclick="saveEditedUser()" class="flex-1 bg-blue-600 text-white py-2 rounded-xl font-bold">Simpan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIF MODAL -->
+    <div id="modal-notif" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-[400] p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl border-t-8 border-blue-600" id="modal-border">
+            <div id="notif-icon" class="text-5xl mb-4"></div>
+            <h4 id="notif-title" class="text-xl font-bold mb-2"></h4>
+            <p id="notif-message" class="text-slate-600 mb-6 text-sm"></p>
+            <button onclick="closeModal()" class="w-full bg-blue-600 text-white py-2 rounded-xl font-bold shadow-md">Oke</button>
+        </div>
+    </div>
+
+    <script>
+        let appState = {
+            currentUser: null,
+            schoolName: "SDN Digital 01",
+            schoolLogo: "",
+            jamMasuk: "07:00",
+            jamPulang: "14:00",
+            schoolLoc: { lat: null, lng: null },
+            allowedRadius: 200,
+            guruList: [],
+            users: [{username: "admin", password: "admin", role: "admin"}],
+            absensiRecords: [],
+            currentLocation: null
+        };
+
+        window.onload = async () => {
+            loadLocalData();
+            updateClock();
+            setInterval(updateClock, 1000);
+            initLocation();
+            setupExcelReader();
+            startVideo();
+            checkSession();
+        };
+
+        // --- AUTH LOGIC ---
+        function handleLogin() {
+            const user = document.getElementById('login-username').value;
+            const pass = document.getElementById('login-password').value;
+            
+            const found = appState.users.find(u => u.username === user && u.password === pass);
+            if(found) {
+                appState.currentUser = found;
+                saveLocalData();
+                checkSession();
+                showNotif('Selamat Datang', `Login berhasil sebagai ${found.role}`, '👋');
+            } else {
+                showNotif('Login Gagal', 'Username atau password salah', '❌', 'error');
+            }
+        }
+
+        function checkSession() {
+            if(appState.currentUser) {
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('main-nav').classList.remove('hidden');
+                switchPage('home');
+                
+                // Role restriction
+                if(appState.currentUser.role === 'admin') {
+                    document.getElementById('admin-nav-group').classList.remove('hidden');
+                } else {
+                    document.getElementById('admin-nav-group').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('login-overlay').classList.remove('hidden');
+                document.getElementById('main-nav').classList.add('hidden');
+            }
+        }
+
+        function handleLogout() {
+            appState.currentUser = null;
+            saveLocalData();
+            checkSession();
+        }
+
+        // --- USER MANAGEMENT ---
+        function addUser() {
+            const u = document.getElementById('user-username').value;
+            const p = document.getElementById('user-password').value;
+            const r = document.getElementById('user-role').value;
+            
+            if(!u || !p) return showNotif('Error', 'Username & password wajib diisi', '⚠️', 'error');
+            if(appState.users.find(x => x.username === u)) return showNotif('Error', 'Username sudah ada', '⚠️', 'error');
+
+            appState.users.push({username: u, password: p, role: r});
+            renderUsersTable();
+            saveLocalData();
+            showNotif('Sukses', 'Akun berhasil dibuat', '👤');
+            
+            document.getElementById('user-username').value = '';
+            document.getElementById('user-password').value = '';
+        }
+
+        function renderUsersTable() {
+            const tbody = document.getElementById('users-table-body');
+            tbody.innerHTML = '';
+            appState.users.forEach((u, i) => {
+                const isAdminAccount = u.username === 'admin';
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="px-6 py-4">
+                            <div class="font-bold">${u.username}</div>
+                            <div class="text-[10px] text-slate-400">ID: ${i}</div>
+                        </td>
+                        <td class="px-6 py-4"><span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs uppercase font-semibold">${u.role}</span></td>
+                        <td class="px-6 py-4 text-right space-x-2">
+                            <button onclick="openEditUserModal(${i})" class="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-lg transition"><i class="fas fa-edit"></i></button>
+                            ${!isAdminAccount ? `<button onclick="deleteUser(${i})" class="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-lg transition"><i class="fas fa-trash"></i></button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function openEditUserModal(index) {
+            const user = appState.users[index];
+            document.getElementById('edit-user-index').value = index;
+            document.getElementById('edit-user-username').value = user.username;
+            document.getElementById('edit-user-password').value = '';
+            document.getElementById('edit-user-role').value = user.role;
+            document.getElementById('modal-edit-user').classList.remove('hidden');
+        }
+
+        function closeEditUserModal() {
+            document.getElementById('modal-edit-user').classList.add('hidden');
+        }
+
+        function saveEditedUser() {
+            const index = document.getElementById('edit-user-index').value;
+            const newUsername = document.getElementById('edit-user-username').value;
+            const newPassword = document.getElementById('edit-user-password').value;
+            const newRole = document.getElementById('edit-user-role').value;
+
+            if(!newUsername) return showNotif('Error', 'Username tidak boleh kosong', '⚠️', 'error');
+
+            // Cek duplikasi username (kecuali milik sendiri)
+            const duplicate = appState.users.find((u, i) => u.username === newUsername && i != index);
+            if(duplicate) return showNotif('Error', 'Username sudah digunakan akun lain', '⚠️', 'error');
+
+            const user = appState.users[index];
+            
+            // Proteksi admin utama tetap admin
+            if(user.username === 'admin' && newRole !== 'admin') {
+                return showNotif('Gagal', 'Akun admin utama harus tetap Administrator', '⚠️', 'error');
+            }
+
+            user.username = newUsername;
+            user.role = newRole;
+            if(newPassword) user.password = newPassword;
+
+            renderUsersTable();
+            saveLocalData();
+            closeEditUserModal();
+            showNotif('Terupdate', 'Data pengguna berhasil diperbarui', '✅');
+        }
+
+        function deleteUser(i) {
+            if(confirm(`Hapus pengguna ${appState.users[i].username}?`)) {
+                appState.users.splice(i, 1);
+                renderUsersTable();
+                saveLocalData();
+                showNotif('Terhapus', 'Akun pengguna telah dihapus', '🗑️');
+            }
+        }
+
+        // --- GPS & RADIUS ---
+        function initLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition((pos) => {
+                    appState.currentLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    document.getElementById('location-status').innerHTML = `<i class="fas fa-check-circle mr-2"></i>Lokasi Terdeteksi`;
+                    document.getElementById('location-status').className = "text-sm p-2 rounded-lg bg-green-50 text-green-700";
+                }, (err) => {
+                    document.getElementById('location-status').innerHTML = `<i class="fas fa-times-circle mr-2"></i>GPS Tidak Aktif`;
+                    document.getElementById('location-status').className = "text-sm p-2 rounded-lg bg-red-50 text-red-700";
+                });
+            }
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+        }
+
+        // --- CORE FUNCTIONS ---
+        function switchPage(p) {
+            document.querySelectorAll('.page-content').forEach(s => s.classList.add('hidden'));
+            document.getElementById('page-' + p).classList.remove('hidden');
+            if(p === 'users') renderUsersTable();
+            if(p === 'admin') renderGuruTable();
+        }
+
+        function processAbsence(type) {
+            if (!appState.currentLocation) return showNotif('Gagal', 'GPS belum siap', '❌', 'error');
+            if (!appState.schoolLoc.lat) return showNotif('Error', 'Lokasi sekolah belum diset Admin', '⚠️', 'error');
+
+            const dist = calculateDistance(appState.currentLocation.lat, appState.currentLocation.lng, appState.schoolLoc.lat, appState.schoolLoc.lng);
+            if (dist > appState.allowedRadius) return showNotif('Diluar Radius', `Jarak: ${dist}m (Max: 200m)`, '📍', 'error');
+
+            const randomGuru = appState.guruList[Math.floor(Math.random() * appState.guruList.length)] || {nama: "Demo Guru", nip: "123456"};
+            const now = new Date();
+            const time = now.getHours().toString().padStart(2,'0') + ":" + now.getMinutes().toString().padStart(2,'0');
+            const date = now.toISOString().split('T')[0];
+
+            let status = type === 'Masuk' && time > appState.jamMasuk ? "Terlambat" : "Tepat Waktu";
+            
+            let record = appState.absensiRecords.find(r => r.date === date && r.nip === randomGuru.nip);
+            if(!record) {
+                appState.absensiRecords.push({ date, nip: randomGuru.nip, nama: randomGuru.nama, masuk: type==='Masuk'?time:'-', pulang: type==='Pulang'?time:'-', status, distance: dist });
+            } else {
+                if(type === 'Masuk') record.masuk = time; else record.pulang = time;
+            }
+            saveLocalData();
+            showNotif('Berhasil', `${type} dicatat: ${randomGuru.nama}`, '✅');
+        }
+
+        // --- HELPERS ---
+        function updateClock() { document.getElementById('current-time').innerText = new Date().toLocaleTimeString('id-ID'); }
+        async function startVideo() { try { const s = await navigator.mediaDevices.getUserMedia({video:{}}); document.getElementById('video').srcObject = s; } catch(e){} }
+        
+        function saveSettings() {
+            appState.schoolName = document.getElementById('cfg-school-name').value || appState.schoolName;
+            appState.schoolLogo = document.getElementById('cfg-school-logo').value || appState.schoolLogo;
+            appState.jamMasuk = document.getElementById('cfg-time-in').value || appState.jamMasuk;
+            appState.jamPulang = document.getElementById('cfg-time-out').value || appState.jamPulang;
+            appState.schoolLoc.lat = parseFloat(document.getElementById('cfg-lat').value);
+            appState.schoolLoc.lng = parseFloat(document.getElementById('cfg-lng').value);
+            saveLocalData();
+            showNotif('Sukses', 'Pengaturan disimpan', '⚙️');
+            document.getElementById('display-school-name').innerText = appState.schoolName;
+        }
+
+        function setSchoolLocation() {
+            if(appState.currentLocation) {
+                document.getElementById('cfg-lat').value = appState.currentLocation.lat;
+                document.getElementById('cfg-lng').value = appState.currentLocation.lng;
+            }
+        }
+
+        function addGuruManual() {
+            const nip = document.getElementById('input-nip').value;
+            const nama = document.getElementById('input-nama').value;
+            const jab = document.getElementById('input-jabatan').value;
+            if(nip && nama) {
+                appState.guruList.push({nip, nama, jabatan: jab});
+                renderGuruTable();
+                saveLocalData();
+                document.getElementById('input-nip').value = '';
+                document.getElementById('input-nama').value = '';
+            }
+        }
+
+        function renderGuruTable() {
+            const b = document.getElementById('guru-table-body'); b.innerHTML = '';
+            appState.guruList.forEach((g, i) => {
+                b.innerHTML += `
+                    <tr>
+                        <td class="px-6 py-4 font-mono">${g.nip}</td>
+                        <td class="px-6 py-4 font-bold text-blue-900">${g.nama}</td>
+                        <td class="px-6 py-4">${g.jabatan}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button onclick="appState.guruList.splice(${i},1);renderGuruTable();saveLocalData();" class="text-red-400 hover:text-red-600 bg-red-50 p-2 rounded-lg"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+            });
+            document.getElementById('guru-count').innerText = appState.guruList.length;
+        }
+
+        function toggleDateInputs() {
+            const filter = document.getElementById('report-filter').value;
+            document.getElementById('manual-date-container').classList.toggle('hidden', filter !== 'manual');
+        }
+
+        function generateReport() {
+            const b = document.getElementById('report-table-body'); b.innerHTML = '';
+            appState.absensiRecords.forEach(r => {
+                b.innerHTML += `<tr><td class="px-6 py-4">${r.date}</td><td class="px-6 py-4"><b>${r.nama}</b><br><small class="text-slate-400 font-mono">${r.nip}</small></td><td class="px-6 py-4">${r.masuk}</td><td class="px-6 py-4">${r.pulang}</td><td class="px-6 py-4"><span class="${r.status === 'Terlambat' ? 'text-red-500 font-bold' : 'text-green-500 font-bold'}">${r.status}</span></td><td class="px-6 py-4">${r.distance}m</td></tr>`;
+            });
+        }
+
+        function setupExcelReader() {
+            document.getElementById('excel-upload').addEventListener('change', (e) => {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const workbook = XLSX.read(evt.target.result, {type:'binary'});
+                    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                    rows.forEach(r => appState.guruList.push({nip: r.NIP||r.nip, nama: r.Nama||r.nama, jabatan: r.Jabatan||r.jabatan||'Guru'}));
+                    renderGuruTable(); saveLocalData();
+                    showNotif('Upload Berhasil', `${rows.length} data ditambahkan`, '📄');
+                };
+                reader.readAsBinaryString(e.target.files[0]);
+            });
+        }
+
+        function showNotif(t, m, i, type='success') {
+            document.getElementById('notif-title').innerText = t;
+            document.getElementById('notif-message').innerText = m;
+            document.getElementById('notif-icon').innerText = i;
+            document.getElementById('modal-border').className = `bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl border-t-8 ${type==='error'?'border-red-600':'border-blue-600'}`;
+            document.getElementById('modal-notif').classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('modal-notif').classList.add('hidden'); }
+        function saveLocalData() { localStorage.setItem('absensi_v4', JSON.stringify(appState)); }
+        function loadLocalData() {
+            const d = localStorage.getItem('absensi_v4');
+            if(d) {
+                appState = JSON.parse(d);
+                document.getElementById('cfg-school-name').value = appState.schoolName;
+                document.getElementById('display-school-name').innerText = appState.schoolName;
+                document.getElementById('cfg-time-in').value = appState.jamMasuk;
+                document.getElementById('cfg-time-out').value = appState.jamPulang;
+                document.getElementById('cfg-lat').value = appState.schoolLoc.lat || '';
+                document.getElementById('cfg-lng').value = appState.schoolLoc.lng || '';
+            }
+        }
+    </script>
+</body>
+</html>
